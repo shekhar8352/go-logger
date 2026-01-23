@@ -1,0 +1,4 @@
+{"timestamp":"2026-01-23T22:37:01+05:30","log_id":"379641a2-f465-43c7-8a27-1f36c30176ae","level":"INFO","message":"Starting the basic example application...","file":"main.go","line":23,"function":"main"}
+{"timestamp":"2026-01-23T22:37:01+05:30","log_id":"379641a2-f465-43c7-8a27-1f36c30176ae","level":"WARN","message":"Work is taking longer than expected (simulation)","file":"main.go","line":40,"function":"doWork"}
+{"timestamp":"2026-01-23T22:37:01+05:30","log_id":"379641a2-f465-43c7-8a27-1f36c30176ae","level":"INFO","message":"Application finished successfully","file":"main.go","line":28,"function":"main"}
+{"timestamp":"2026-01-23T22:37:01+05:30","log_id":"379641a2-f465-43c7-8a27-1f36c30176ae","level":"ERROR","message":"An unexpected error occurred: context deadline exceeded","file":"main.go","line":33,"function":"main"}
