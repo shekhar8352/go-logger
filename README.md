@@ -110,6 +110,35 @@ flowchart TD
     R --> U[Auditing & Monitoring]
 ```
 
+## Examples
+
+Check the [examples/README.md](logger/examples/README.md) for detailed usage instructions and real-world scenarios:
+
+- **Basic Usage**: Simple logging setup.
+- **Search**: Querying and parsing logs.
+- **HTTP Middleware**: Context-aware logging in a web server.
+- **Advanced Config**: Dynamic configuration and runtime level changes.
+
+## Benchmarks
+
+The logger is optimized for low latency and minimal interaction with the garbage collector.
+
+**Hardware**: Apple M4
+**Results**:
+
+| Benchmark                       | Operations/sec | Time/Op  |
+| :------------------------------ | :------------- | :------- |
+| `BenchmarkLogger_Info`          | ~1.2M          | 996.9 ns |
+| `BenchmarkLogger_Info_WithArgs` | ~1.0M          | 1062 ns  |
+| `BenchmarkLogger_Silent`        | ~3.7M          | 322.7 ns |
+| `BenchmarkLogger_CreateEntry`   | ~2.9M          | 408.0 ns |
+
+To run benchmarks yourself:
+
+```bash
+go test -bench=. ./logger/logging/...
+```
+
 ## Publishing
 
 1. Create repository `github.com/shekhar8352/go-logger` and push files.
