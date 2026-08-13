@@ -18,13 +18,27 @@ type StructuredLogger struct {
 	logFile    *os.File
 	currentDay string
 	config     LoggerConfig
+	rotateErr  error
 }
 
-// NewLogger creates a new StructuredLogger using the provided config
+// NewLogger creates a new StructuredLogger using the provided config.
+// When cfg.Writer is set, file rotation is skipped. Otherwise a log file is
+// opened; if that fails the logger falls back to stderr and remains usable.
 func NewLogger(cfg LoggerConfig) *StructuredLogger {
 	l := &StructuredLogger{config: cfg}
-	l.rotateLogFile()
+	if cfg.Writer == nil {
+		_ = l.rotateLogFile()
+	}
 	return l
+}
+
+// RotationError returns the last error from creating the log directory or
+// opening the log file. It is nil when rotation has succeeded or when a
+// custom Writer is in use.
+func (l *StructuredLogger) RotationError() error {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.rotateErr
 }
 
 // Global default instance
@@ -91,17 +105,22 @@ func (l *StructuredLogger) writeLog(entry LogEntry) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	// rotate if day changed
-	l.rotateLogFile()
-
 	data, err := json.Marshal(entry)
 	if err != nil {
 		data = []byte(fmt.Sprintf(`{"timestamp":"%s","level":"%s","message":"json marshal error: %v"}`,
 			entry.Timestamp, entry.Level, err))
 	}
 
-	if l.logFile != nil {
-		_, _ = l.logFile.Write(append(data, '\n'))
+	line := append(data, '\n')
+	if l.config.Writer != nil {
+		_, _ = l.config.Writer.Write(line)
+	} else {
+		_ = l.rotateLogFile()
+		if l.logFile != nil {
+			_, _ = l.logFile.Write(line)
+		} else {
+			_, _ = os.Stderr.Write(line)
+		}
 	}
 
 	if l.config.IncludeConsole {

@@ -1,5 +1,7 @@
 package logging
 
+import "io"
+
 // Log level constants
 const (
 	LevelDebug = "DEBUG"
@@ -14,6 +16,10 @@ type LoggerConfig struct {
 	FilePrefix     string
 	IncludeConsole bool
 	MinLevel       string
+	// Writer is an optional sink for log output. When set, file rotation is
+	// skipped and entries are written to Writer instead. Useful for tests
+	// (e.g. BufferSink) or custom destinations.
+	Writer io.Writer
 }
 
 // DefaultConfig returns a sensible default configuration
