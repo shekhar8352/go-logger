@@ -37,7 +37,39 @@ func main() {
 }
 ```
 
-### 2. Search & Read Logs
+### 2. Structured fields and child loggers
+
+Attach key-value fields to a single entry, or create a **child logger** that includes the same fields on every line. Fields are serialized as a nested JSON object and omitted when empty.
+
+```go
+package main
+
+import (
+	"context"
+	"github.com/shekhar8352/go-logger/logger/logging"
+)
+
+func main() {
+	lg := logging.NewLogger(logging.DefaultConfig())
+	defer lg.Close()
+
+	ctx := logging.AddLogID(context.Background())
+
+	// Child logger: these fields appear on every entry it writes
+	reqLog := lg.WithFields(map[string]interface{}{
+		"user_id": 123,
+		"role":    "admin",
+	})
+	reqLog.Info(ctx, "request started")
+	reqLog.WithField("path", "/orders").Error(ctx, "handler failed")
+
+	// Per-call fields via context (merged with logger fields)
+	ctx = logging.ContextWithField(ctx, "request_id", "req-1")
+	lg.Info(ctx, "plain logger with context fields")
+}
+```
+
+### 3. Search & Read Logs
 
 You can programmatically search through generated logs.
 
@@ -76,7 +108,7 @@ flowchart TD
     B --> C[Context Injection<br/>Add Log ID]
     C --> D[Structured Logger]
 
-    D --> E[Build LogEntry<br/>timestamp, level, message,<br/>file, line, function, log_id]
+    D --> E[Build LogEntry<br/>timestamp, level, message,<br/>file, line, function, log_id, fields]
     E --> F[Marshal to JSON]
 
     F --> G[Write to Daily Log File<br/>app-YYYY-MM-DD.log]
