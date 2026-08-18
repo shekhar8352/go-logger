@@ -39,11 +39,14 @@ func ParseLogLine(line string) (LogEntry, error) {
 	if fn, ok := raw["function"].(string); ok {
 		entry.Function = fn
 	}
+	if f, ok := raw["fields"].(map[string]interface{}); ok && len(f) > 0 {
+		entry.Fields = copyFields(f)
+	}
 
 	// Capture any non-standard fields into Extra
 	for k, v := range raw {
 		switch k {
-		case "timestamp", "log_id", "level", "message", "file", "line", "function":
+		case "timestamp", "log_id", "level", "message", "file", "line", "function", "fields":
 		// already handled
 		default:
 			if s, ok := v.(string); ok {

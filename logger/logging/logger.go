@@ -12,13 +12,17 @@ import (
 	"time"
 )
 
-// StructuredLogger handles structured logging with rotation and context support
+// StructuredLogger handles structured logging with rotation and context support.
+// Child loggers created with WithField/WithFields share the parent's writer and
+// add their fields to every log entry.
 type StructuredLogger struct {
 	mu         sync.RWMutex
 	logFile    *os.File
 	currentDay string
 	config     LoggerConfig
 	rotateErr  error
+	fields     map[string]interface{}
+	root       *StructuredLogger
 }
 
 // NewLogger creates a new StructuredLogger using the provided config.
@@ -36,9 +40,10 @@ func NewLogger(cfg LoggerConfig) *StructuredLogger {
 // opening the log file. It is nil when rotation has succeeded or when a
 // custom Writer is in use.
 func (l *StructuredLogger) RotationError() error {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	return l.rotateErr
+	w := l.rootOrSelf()
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.rotateErr
 }
 
 // Global default instance
@@ -59,19 +64,57 @@ func Error(ctx context.Context, msg string, args ...interface{}) {
 	DefaultLogger.Error(ctx, msg, args...)
 }
 
-// SetLevel changes the minimum log level for the logger
-func (l *StructuredLogger) SetLevel(level string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.config.MinLevel = level
+// WithField returns a child of the default logger that includes key on every entry.
+func WithField(key string, value interface{}) *StructuredLogger {
+	return DefaultLogger.WithField(key, value)
 }
 
-// Close cleans up file handles
+// WithFields returns a child of the default logger that includes fields on every entry.
+func WithFields(fields map[string]interface{}) *StructuredLogger {
+	return DefaultLogger.WithFields(fields)
+}
+
+func (l *StructuredLogger) rootOrSelf() *StructuredLogger {
+	if l.root != nil {
+		return l.root
+	}
+	return l
+}
+
+// WithField returns a child logger that adds key to every log entry.
+// The child shares the parent's output and configuration.
+func (l *StructuredLogger) WithField(key string, value interface{}) *StructuredLogger {
+	return l.WithFields(map[string]interface{}{key: value})
+}
+
+// WithFields returns a child logger that adds fields to every log entry.
+// Child fields overlay the parent's fields. Incoming keys overwrite existing ones.
+func (l *StructuredLogger) WithFields(fields map[string]interface{}) *StructuredLogger {
+	return &StructuredLogger{
+		root:   l.rootOrSelf(),
+		fields: mergeFields(copyFields(l.fields), copyFields(fields)),
+	}
+}
+
+// SetLevel changes the minimum log level for the logger
+func (l *StructuredLogger) SetLevel(level string) {
+	w := l.rootOrSelf()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.config.MinLevel = level
+}
+
+// Close cleans up file handles. Closing a child logger is a no-op; close the parent.
 func (l *StructuredLogger) Close() error {
+	if l.root != nil {
+		return nil
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.logFile != nil {
-		return l.logFile.Close()
+		err := l.logFile.Close()
+		l.logFile = nil
+		return err
 	}
 	return nil
 }
@@ -93,7 +136,8 @@ func levelPriority(level string) int {
 }
 
 func (l *StructuredLogger) shouldLog(level string) bool {
-	return levelPriority(level) >= levelPriority(l.config.MinLevel)
+	w := l.rootOrSelf()
+	return levelPriority(level) >= levelPriority(w.config.MinLevel)
 }
 
 // writeLog writes a LogEntry to file and console (if configured)
@@ -102,8 +146,9 @@ func (l *StructuredLogger) writeLog(entry LogEntry) {
 		return
 	}
 
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	w := l.rootOrSelf()
+	w.mu.Lock()
+	defer w.mu.Unlock()
 
 	data, err := json.Marshal(entry)
 	if err != nil {
@@ -112,18 +157,18 @@ func (l *StructuredLogger) writeLog(entry LogEntry) {
 	}
 
 	line := append(data, '\n')
-	if l.config.Writer != nil {
-		_, _ = l.config.Writer.Write(line)
+	if w.config.Writer != nil {
+		_, _ = w.config.Writer.Write(line)
 	} else {
-		_ = l.rotateLogFile()
-		if l.logFile != nil {
-			_, _ = l.logFile.Write(line)
+		_ = w.rotateLogFile()
+		if w.logFile != nil {
+			_, _ = w.logFile.Write(line)
 		} else {
 			_, _ = os.Stderr.Write(line)
 		}
 	}
 
-	if l.config.IncludeConsole {
+	if w.config.IncludeConsole {
 		fmt.Println(string(data))
 	}
 }
@@ -162,6 +207,7 @@ func (l *StructuredLogger) createLogEntry(ctx context.Context, level string, msg
 		File:      file,
 		Line:      line,
 		Function:  function,
+		Fields:    mergeFields(copyFields(l.fields), GetContextFields(ctx)),
 	}
 }
 
