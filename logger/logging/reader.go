@@ -83,10 +83,17 @@ func ReadAndFilterLogs(filename string, filter func(LogEntry) bool) ([]LogEntry,
 	return ReadAndFilterLogsWithOptions(filename, filter, ReadLogsOptions{})
 }
 
-// ReadLogsByDate convenience
+// ReadLogsByDate reads logs for a date from the default directory and prefix
+// (GetLogDirectory() and "app"). See ReadLogsByDateWithConfig to use a custom path.
 func ReadLogsByDate(date, level string) ([]LogEntry, int, error) {
-	logDir := GetLogDirectory()
-	logFile := filepath.Join(logDir, fmt.Sprintf("app-%s.log", date))
+	return ReadLogsByDateWithConfig(LoggerConfig{}, date, level)
+}
+
+// ReadLogsByDateWithConfig reads logs for a date using cfg.LogsDir and cfg.FilePrefix.
+// Empty LogsDir falls back to GetLogDirectory(); empty FilePrefix falls back to "app".
+func ReadLogsByDateWithConfig(cfg LoggerConfig, date, level string) ([]LogEntry, int, error) {
+	dir, prefix := readerDirAndPrefix(cfg)
+	logFile := datedLogFile(dir, prefix, date)
 	options := ReadLogsOptions{MaxResults: 0, ChunkSize: 1000, EnableEarlyTermination: false}
 	return ReadAndFilterLogsWithOptions(logFile, func(e LogEntry) bool {
 		if level != "" && !strings.EqualFold(e.Level, level) {
@@ -96,16 +103,25 @@ func ReadLogsByDate(date, level string) ([]LogEntry, int, error) {
 	}, options)
 }
 
-// SearchLogs searches recent files (or specific date) for a query
+// SearchLogs searches recent files (or a specific date) for a query using the
+// default directory and prefix (GetLogDirectory() and "app"). See SearchLogsWithConfig
+// to use a custom LogsDir and FilePrefix.
 func SearchLogs(query, date, level string) ([]LogEntry, int, error) {
+	return SearchLogsWithConfig(LoggerConfig{}, query, date, level)
+}
+
+// SearchLogsWithConfig searches recent files (or a specific date) for a query
+// using cfg.LogsDir and cfg.FilePrefix. Empty fields fall back to GetLogDirectory()
+// and "app" so behavior matches SearchLogs when no config is provided.
+func SearchLogsWithConfig(cfg LoggerConfig, query, date, level string) ([]LogEntry, int, error) {
+	dir, prefix := readerDirAndPrefix(cfg)
 	var logFiles []string
-	logDir := GetLogDirectory()
 	if date != "" {
-		logFiles = []string{filepath.Join(logDir, fmt.Sprintf("app-%s.log", date))}
+		logFiles = []string{datedLogFile(dir, prefix, date)}
 	} else {
 		for i := 0; i < 7; i++ {
 			d := time.Now().AddDate(0, 0, -i).Format("2006-01-02")
-			logFiles = append(logFiles, filepath.Join(logDir, fmt.Sprintf("app-%s.log", d)))
+			logFiles = append(logFiles, datedLogFile(dir, prefix, d))
 		}
 	}
 	var allLogs []LogEntry
@@ -176,17 +192,26 @@ func GetLast3Days() []string {
 	return dates
 }
 
-// GetAvailableLogFiles lists files like app-YYYY-MM-DD.log sorted newest first
+// GetAvailableLogFiles lists files like app-YYYY-MM-DD.log in the default
+// directory, sorted newest first. See GetAvailableLogFilesWithConfig for a
+// custom LogsDir and FilePrefix.
 func GetAvailableLogFiles() ([]string, error) {
-	logDir := GetLogDirectory()
-	if _, err := os.Stat(logDir); os.IsNotExist(err) {
-		return nil, NewLogFileReadError(logDir, fmt.Errorf("log directory does not exist"))
+	return GetAvailableLogFilesWithConfig(LoggerConfig{})
+}
+
+// GetAvailableLogFilesWithConfig lists dated log files matching cfg.FilePrefix
+// in cfg.LogsDir, sorted newest first. Empty fields fall back to GetLogDirectory()
+// and "app".
+func GetAvailableLogFilesWithConfig(cfg LoggerConfig) ([]string, error) {
+	dir, prefix := readerDirAndPrefix(cfg)
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		return nil, NewLogFileReadError(dir, fmt.Errorf("log directory does not exist"))
 	}
-	entries, err := os.ReadDir(logDir)
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, NewLogFileReadError(logDir, fmt.Errorf("failed to read log directory: %w", err))
+		return nil, NewLogFileReadError(dir, fmt.Errorf("failed to read log directory: %w", err))
 	}
-	pattern := regexp.MustCompile(`^app-(\d{4}-\d{2}-\d{2})\.log$`)
+	pattern := logFileNamePattern(prefix)
 	var files []string
 	for _, e := range entries {
 		if e.IsDir() {
@@ -194,7 +219,7 @@ func GetAvailableLogFiles() ([]string, error) {
 		}
 		name := e.Name()
 		if pattern.MatchString(name) {
-			files = append(files, filepath.Join(logDir, name))
+			files = append(files, filepath.Join(dir, name))
 		}
 	}
 	sort.Slice(files, func(i, j int) bool {
@@ -205,10 +230,33 @@ func GetAvailableLogFiles() ([]string, error) {
 	return files, nil
 }
 
+// readerDirAndPrefix resolves LogsDir and FilePrefix from cfg, falling back to
+// GetLogDirectory() and DefaultConfig().FilePrefix ("app") when empty.
+func readerDirAndPrefix(cfg LoggerConfig) (dir, prefix string) {
+	dir = cfg.LogsDir
+	prefix = cfg.FilePrefix
+	if dir == "" {
+		dir = GetLogDirectory()
+	}
+	if prefix == "" {
+		prefix = DefaultConfig().FilePrefix
+	}
+	return dir, prefix
+}
+
+func datedLogFile(dir, prefix, date string) string {
+	return filepath.Join(dir, fmt.Sprintf("%s-%s.log", prefix, date))
+}
+
+func logFileNamePattern(prefix string) *regexp.Regexp {
+	return regexp.MustCompile(`^` + regexp.QuoteMeta(prefix) + `-(\d{4}-\d{2}-\d{2})\.log$`)
+}
+
+var logFileDatePattern = regexp.MustCompile(`-(\d{4}-\d{2}-\d{2})\.log$`)
+
 func extractDateFromLogFile(filePath string) string {
 	name := filepath.Base(filePath)
-	pattern := regexp.MustCompile(`^app-(\d{4}-\d{2}-\d{2})\.log$`)
-	m := pattern.FindStringSubmatch(name)
+	m := logFileDatePattern.FindStringSubmatch(name)
 	if len(m) > 1 {
 		return m[1]
 	}
