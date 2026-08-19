@@ -76,7 +76,18 @@ func main() {
 }
 ```
 
-### 3. Search & Read Logs
+### 3. Log format and timestamps
+
+JSON is the default. Set `LogFormat` to `logfmt` for key=value lines, and `TimestampFormat` to `time.RFC3339` (default), `logging.TimestampUnixMs`, or any `time.Format` layout.
+
+```go
+cfg := logging.DefaultConfig()
+cfg.LogFormat = logging.FormatLogfmt
+cfg.TimestampFormat = logging.TimestampUnixMs
+lg := logging.NewLogger(cfg)
+```
+
+### 4. Search & Read Logs
 
 You can programmatically search through generated logs.
 
