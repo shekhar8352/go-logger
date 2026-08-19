@@ -34,6 +34,13 @@ func main() {
 	// Log messages
 	lg.Info(ctx, "Application started")
 	lg.Error(ctx, "Something went wrong: %v", "connection refused")
+
+	// Optional tracing ids from an incoming request (omitted from JSON when unset)
+	ctx = logging.WithLogID(ctx, "req-header-id")
+	ctx = logging.WithRequestID(ctx, "req-1")
+	ctx = logging.WithTraceID(ctx, "tr-1")
+	ctx = logging.WithUserID(ctx, "user-9")
+	lg.Info(ctx, "handling request")
 }
 ```
 
