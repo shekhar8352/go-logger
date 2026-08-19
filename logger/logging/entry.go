@@ -11,6 +11,11 @@ type LogEntry struct {
 	Line      int    `json:"line"`
 	Function  string `json:"function,omitempty"`
 
+	// Optional tracing identifiers. Omitted from JSON when empty.
+	RequestID string `json:"request_id,omitempty"`
+	TraceID   string `json:"trace_id,omitempty"`
+	UserID    string `json:"user_id,omitempty"`
+
 	// Fields holds structured key-value data serialized as a nested "fields" object.
 	// It is omitted from JSON when empty so existing log shape is unchanged.
 	Fields map[string]interface{} `json:"fields,omitempty"`

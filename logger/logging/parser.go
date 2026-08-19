@@ -39,6 +39,15 @@ func ParseLogLine(line string) (LogEntry, error) {
 	if fn, ok := raw["function"].(string); ok {
 		entry.Function = fn
 	}
+	if id, ok := raw["request_id"].(string); ok {
+		entry.RequestID = id
+	}
+	if id, ok := raw["trace_id"].(string); ok {
+		entry.TraceID = id
+	}
+	if id, ok := raw["user_id"].(string); ok {
+		entry.UserID = id
+	}
 	if f, ok := raw["fields"].(map[string]interface{}); ok && len(f) > 0 {
 		entry.Fields = copyFields(f)
 	}
@@ -46,7 +55,8 @@ func ParseLogLine(line string) (LogEntry, error) {
 	// Capture any non-standard fields into Extra
 	for k, v := range raw {
 		switch k {
-		case "timestamp", "log_id", "level", "message", "file", "line", "function", "fields":
+		case "timestamp", "log_id", "level", "message", "file", "line", "function",
+			"request_id", "trace_id", "user_id", "fields":
 		// already handled
 		default:
 			if s, ok := v.(string); ok {

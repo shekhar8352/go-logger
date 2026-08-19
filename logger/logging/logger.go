@@ -202,6 +202,9 @@ func (l *StructuredLogger) createLogEntry(ctx context.Context, level string, msg
 	return LogEntry{
 		Timestamp: time.Now().Format(time.RFC3339),
 		LogID:     GetLogID(ctx),
+		RequestID: GetRequestID(ctx),
+		TraceID:   GetTraceID(ctx),
+		UserID:    GetUserID(ctx),
 		Level:     level,
 		Message:   msg,
 		File:      file,
