@@ -2,7 +2,6 @@ package logging
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -150,12 +149,7 @@ func (l *StructuredLogger) writeLog(entry LogEntry) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	data, err := json.Marshal(entry)
-	if err != nil {
-		data = []byte(fmt.Sprintf(`{"timestamp":"%s","level":"%s","message":"json marshal error: %v"}`,
-			entry.Timestamp, entry.Level, err))
-	}
-
+	data := encodeLogLine(w.config.LogFormat, entry)
 	line := append(data, '\n')
 	if w.config.Writer != nil {
 		_, _ = w.config.Writer.Write(line)
@@ -200,7 +194,7 @@ func (l *StructuredLogger) createLogEntry(ctx context.Context, level string, msg
 	}
 	file, line, function := getCallerInfo(3)
 	return LogEntry{
-		Timestamp: time.Now().Format(time.RFC3339),
+		Timestamp: formatTimestamp(time.Now(), l.rootOrSelf().config.TimestampFormat),
 		LogID:     GetLogID(ctx),
 		RequestID: GetRequestID(ctx),
 		TraceID:   GetTraceID(ctx),
