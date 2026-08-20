@@ -101,7 +101,21 @@ cfg.CompressRotated = true // gzip files after they are rotated away
 
 Size-rotated files are named `app-YYYY-MM-DD.N.log` (then `.log.gz` when compression is enabled). The active file is never gzipped.
 
-### 5. Search & Read Logs
+### 5. Async writer, console routing, and extra sinks
+
+Set `UseAsyncWriter` to buffer writes on a background goroutine (`Close()` flushes what is still queued). `StderrLevels` sends matching console lines to stderr; everything else stays on stdout. `Sinks` get a copy of every line.
+
+```go
+cfg := logging.DefaultConfig()
+cfg.UseAsyncWriter = true
+cfg.AsyncBufferSize = 256
+cfg.FlushInterval = time.Second
+cfg.IncludeConsole = true
+cfg.StderrLevels = []string{logging.LevelError, logging.LevelWarn}
+cfg.Sinks = []io.Writer{metricsWriter}
+```
+
+### 6. Search & Read Logs
 
 You can programmatically search through generated logs.
 
