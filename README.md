@@ -87,7 +87,21 @@ cfg.TimestampFormat = logging.TimestampUnixMs
 lg := logging.NewLogger(cfg)
 ```
 
-### 4. Search & Read Logs
+### 4. Rotation, retention, and compression
+
+Daily rotation is always on. Size rotation, retention, and gzip are off unless configured (`0` / `false` keeps the previous behavior).
+
+```go
+cfg := logging.DefaultConfig()
+cfg.MaxFileSize = 10 << 20 // rotate the current file at 10 MiB
+cfg.RetentionDays = 7      // delete files older than 7 days
+cfg.MaxBackups = 20        // keep at most 20 archived files
+cfg.CompressRotated = true // gzip files after they are rotated away
+```
+
+Size-rotated files are named `app-YYYY-MM-DD.N.log` (then `.log.gz` when compression is enabled). The active file is never gzipped.
+
+### 5. Search & Read Logs
 
 You can programmatically search through generated logs.
 
