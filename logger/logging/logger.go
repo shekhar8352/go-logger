@@ -23,6 +23,17 @@ type StructuredLogger struct {
 	rotateErr   error
 	fields      map[string]interface{}
 	root        *StructuredLogger
+
+	asyncCh   chan logJob
+	asyncDone chan struct{}
+	sendMu    sync.Mutex
+	closed    bool
+}
+
+type logJob struct {
+	line  []byte
+	data  []byte
+	level string
 }
 
 // NewLogger creates a new StructuredLogger using the provided config.
@@ -32,6 +43,15 @@ func NewLogger(cfg LoggerConfig) *StructuredLogger {
 	l := &StructuredLogger{config: cfg}
 	if cfg.Writer == nil {
 		_ = l.rotateLogFile()
+	}
+	if cfg.UseAsyncWriter {
+		size := cfg.AsyncBufferSize
+		if size <= 0 {
+			size = 256
+		}
+		l.asyncCh = make(chan logJob, size)
+		l.asyncDone = make(chan struct{})
+		go l.asyncLoop()
 	}
 	return l
 }
@@ -109,6 +129,22 @@ func (l *StructuredLogger) Close() error {
 	if l.root != nil {
 		return nil
 	}
+
+	l.sendMu.Lock()
+	if l.closed {
+		l.sendMu.Unlock()
+		return nil
+	}
+	l.closed = true
+	ch := l.asyncCh
+	done := l.asyncDone
+	l.sendMu.Unlock()
+
+	if ch != nil {
+		close(ch)
+		<-done
+	}
+
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.logFile != nil {
@@ -147,26 +183,68 @@ func (l *StructuredLogger) writeLog(entry LogEntry) {
 	}
 
 	w := l.rootOrSelf()
+	data := encodeLogLine(w.config.LogFormat, entry)
+	line := make([]byte, len(data)+1)
+	copy(line, data)
+	line[len(data)] = '\n'
+	job := logJob{line: line, data: data, level: entry.Level}
+
+	w.sendMu.Lock()
+	if w.closed {
+		w.sendMu.Unlock()
+		return
+	}
+	if w.asyncCh != nil {
+		w.asyncCh <- job
+		w.sendMu.Unlock()
+		return
+	}
+	w.sendMu.Unlock()
+
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	w.emitLocked(job)
+}
 
-	data := encodeLogLine(w.config.LogFormat, entry)
-	line := append(data, '\n')
-	if w.config.Writer != nil {
-		_, _ = w.config.Writer.Write(line)
+func (l *StructuredLogger) emitLocked(job logJob) {
+	if l.config.Writer != nil {
+		_, _ = l.config.Writer.Write(job.line)
 	} else {
-		_ = w.rotateLogFile()
-		if w.logFile != nil {
-			n, _ := w.logFile.Write(line)
-			w.currentSize += int64(n)
+		_ = l.rotateLogFile()
+		if l.logFile != nil {
+			n, _ := l.logFile.Write(job.line)
+			l.currentSize += int64(n)
 		} else {
-			_, _ = os.Stderr.Write(line)
+			_, _ = os.Stderr.Write(job.line)
 		}
 	}
 
-	if w.config.IncludeConsole {
-		fmt.Println(string(data))
+	for _, s := range l.config.Sinks {
+		if s != nil {
+			_, _ = s.Write(job.line)
+		}
 	}
+
+	if l.config.IncludeConsole {
+		writeConsole(job.level, job.data, l.config.StderrLevels)
+	}
+}
+
+func writeConsole(level string, data []byte, stderrLevels []string) {
+	out := os.Stdout
+	if consoleGoesToStderr(level, stderrLevels) {
+		out = os.Stderr
+	}
+	fmt.Fprintln(out, string(data))
+}
+
+func consoleGoesToStderr(level string, stderrLevels []string) bool {
+	for _, l := range stderrLevels {
+		if strings.EqualFold(l, level) {
+			return true
+		}
+	}
+	return false
 }
 
 // getCallerInfo returns filename, line, function for a given depth

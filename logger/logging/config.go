@@ -51,6 +51,20 @@ type LoggerConfig struct {
 	// CompressRotated gzip-compresses files that have been rotated away
 	// (e.g. app-2026-01-22.log.gz). The active log file is never compressed.
 	CompressRotated bool
+	// UseAsyncWriter buffers log lines and writes them in a background
+	// goroutine. Close() flushes remaining buffered lines.
+	UseAsyncWriter bool
+	// AsyncBufferSize is the async channel capacity. Zero defaults to 256.
+	AsyncBufferSize int
+	// FlushInterval, when greater than zero, Sync/Flushes outputs on this
+	// cadence in addition to writes. Zero writes as soon as the worker runs.
+	FlushInterval time.Duration
+	// StderrLevels lists levels written to stderr when IncludeConsole is true.
+	// Other console levels go to stdout. Empty means all console output to stdout.
+	StderrLevels []string
+	// Sinks receive a copy of every written log line, in addition to the
+	// primary file or Writer and optional console output.
+	Sinks []io.Writer
 }
 
 // DefaultConfig returns a sensible default configuration
