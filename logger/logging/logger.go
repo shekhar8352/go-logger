@@ -15,13 +15,14 @@ import (
 // Child loggers created with WithField/WithFields share the parent's writer and
 // add their fields to every log entry.
 type StructuredLogger struct {
-	mu         sync.RWMutex
-	logFile    *os.File
-	currentDay string
-	config     LoggerConfig
-	rotateErr  error
-	fields     map[string]interface{}
-	root       *StructuredLogger
+	mu          sync.RWMutex
+	logFile     *os.File
+	currentDay  string
+	currentSize int64
+	config      LoggerConfig
+	rotateErr   error
+	fields      map[string]interface{}
+	root        *StructuredLogger
 }
 
 // NewLogger creates a new StructuredLogger using the provided config.
@@ -156,7 +157,8 @@ func (l *StructuredLogger) writeLog(entry LogEntry) {
 	} else {
 		_ = w.rotateLogFile()
 		if w.logFile != nil {
-			_, _ = w.logFile.Write(line)
+			n, _ := w.logFile.Write(line)
+			w.currentSize += int64(n)
 		} else {
 			_, _ = os.Stderr.Write(line)
 		}
