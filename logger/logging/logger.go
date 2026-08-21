@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -28,6 +29,11 @@ type StructuredLogger struct {
 	asyncDone chan struct{}
 	sendMu    sync.Mutex
 	closed    bool
+
+	debugCount atomic.Uint64
+	infoCount  atomic.Uint64
+	warnCount  atomic.Uint64
+	errorCount atomic.Uint64
 }
 
 type logJob struct {
@@ -183,6 +189,9 @@ func (l *StructuredLogger) writeLog(entry LogEntry) {
 	}
 
 	w := l.rootOrSelf()
+	w.recordMetrics(entry.Level)
+	w.invokeHooks(entry)
+
 	data := encodeLogLine(w.config.LogFormat, entry)
 	line := make([]byte, len(data)+1)
 	copy(line, data)

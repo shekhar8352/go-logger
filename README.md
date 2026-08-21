@@ -115,7 +115,21 @@ cfg.StderrLevels = []string{logging.LevelError, logging.LevelWarn}
 cfg.Sinks = []io.Writer{metricsWriter}
 ```
 
-### 6. Search & Read Logs
+### 6. Hooks and metrics
+
+Hooks run **asynchronously** for entries that pass `MinLevel`. They must not panic (panics are recovered) and they do not block log writes. `OnError` is an extra hook for ERROR only. `Metrics()` returns per-level counts.
+
+```go
+cfg := logging.DefaultConfig()
+cfg.Hooks = []logging.Hook{
+    func(e logging.LogEntry) { notify(e) },
+}
+cfg.OnError = func(e logging.LogEntry) { alert(e) }
+lg := logging.NewLogger(cfg)
+_ = lg.Metrics()
+```
+
+### 7. Search & Read Logs
 
 You can programmatically search through generated logs.
 

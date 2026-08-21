@@ -65,7 +65,18 @@ type LoggerConfig struct {
 	// Sinks receive a copy of every written log line, in addition to the
 	// primary file or Writer and optional console output.
 	Sinks []io.Writer
+	// Hooks are invoked asynchronously for each entry that passes MinLevel.
+	// They must not panic; panics are recovered. They do not block logging.
+	Hooks []Hook
+	// OnError is an optional hook invoked only for ERROR entries, with the
+	// same async/non-blocking contract as Hooks.
+	OnError Hook
 }
+
+// Hook is called with a log entry after MinLevel filtering.
+// Hooks run in the background so they must not assume they complete before
+// the next log call, and they should avoid long-running work when possible.
+type Hook func(LogEntry)
 
 // DefaultConfig returns a sensible default configuration
 func DefaultConfig() LoggerConfig {
