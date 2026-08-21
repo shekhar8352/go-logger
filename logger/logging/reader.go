@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -92,15 +93,51 @@ func ReadLogsByDate(date, level string) ([]LogEntry, int, error) {
 // ReadLogsByDateWithConfig reads logs for a date using cfg.LogsDir and cfg.FilePrefix.
 // Empty LogsDir falls back to GetLogDirectory(); empty FilePrefix falls back to "app".
 func ReadLogsByDateWithConfig(cfg LoggerConfig, date, level string) ([]LogEntry, int, error) {
-	dir, prefix := readerDirAndPrefix(cfg)
-	logFile := datedLogFile(dir, prefix, date)
+	return ReadLogsWithOptions(ReadOptions{Config: cfg, Date: date, Level: level})
+}
+
+// ReadLogsWithOptions reads logs for a date with optional level, time range, and pagination.
+// The returned count is the number of matches before Offset/Limit are applied.
+func ReadLogsWithOptions(opts ReadOptions) ([]LogEntry, int, error) {
+	dir, prefix := readerDirAndPrefix(opts.Config)
+	logFile := datedLogFile(dir, prefix, opts.Date)
 	options := ReadLogsOptions{MaxResults: 0, ChunkSize: 1000, EnableEarlyTermination: false}
-	return ReadAndFilterLogsWithOptions(logFile, func(e LogEntry) bool {
-		if level != "" && !strings.EqualFold(e.Level, level) {
+	logs, _, err := ReadAndFilterLogsWithOptions(logFile, func(e LogEntry) bool {
+		if opts.Level != "" && !strings.EqualFold(e.Level, opts.Level) {
 			return false
 		}
-		return true
+		return entryInTimeRange(e, opts.StartTime, opts.EndTime)
 	}, options)
+	if err != nil {
+		return nil, 0, err
+	}
+	total := len(logs)
+	return applyPagination(logs, opts.Offset, opts.Limit), total, nil
+}
+
+// SearchOptions configures SearchLogsWithOptions. Existing SearchLogs helpers
+// keep substring matching and no pagination.
+type SearchOptions struct {
+	Config    LoggerConfig
+	Query     string
+	Date      string
+	Level     string
+	Offset    int
+	Limit     int
+	StartTime time.Time
+	EndTime   time.Time
+	UseRegex  bool
+}
+
+// ReadOptions configures ReadLogsWithOptions.
+type ReadOptions struct {
+	Config    LoggerConfig
+	Date      string
+	Level     string
+	Offset    int
+	Limit     int
+	StartTime time.Time
+	EndTime   time.Time
 }
 
 // SearchLogs searches recent files (or a specific date) for a query using the
@@ -114,31 +151,46 @@ func SearchLogs(query, date, level string) ([]LogEntry, int, error) {
 // using cfg.LogsDir and cfg.FilePrefix. Empty fields fall back to GetLogDirectory()
 // and "app" so behavior matches SearchLogs when no config is provided.
 func SearchLogsWithConfig(cfg LoggerConfig, query, date, level string) ([]LogEntry, int, error) {
-	dir, prefix := readerDirAndPrefix(cfg)
+	return SearchLogsWithOptions(SearchOptions{Config: cfg, Query: query, Date: date, Level: level})
+}
+
+// SearchLogsWithOptions searches logs with pagination, time range, and optional regex.
+// The returned count is the number of matches before Offset/Limit are applied.
+func SearchLogsWithOptions(opts SearchOptions) ([]LogEntry, int, error) {
+	var compiled *regexp.Regexp
+	if opts.UseRegex && opts.Query != "" {
+		re, err := regexp.Compile(opts.Query)
+		if err != nil {
+			return nil, 0, fmt.Errorf("invalid search regex: %w", err)
+		}
+		compiled = re
+	}
+
+	dir, prefix := readerDirAndPrefix(opts.Config)
 	var logFiles []string
-	if date != "" {
-		logFiles = []string{datedLogFile(dir, prefix, date)}
+	if opts.Date != "" {
+		logFiles = []string{datedLogFile(dir, prefix, opts.Date)}
 	} else {
 		for i := 0; i < 7; i++ {
 			d := time.Now().AddDate(0, 0, -i).Format("2006-01-02")
 			logFiles = append(logFiles, datedLogFile(dir, prefix, d))
 		}
 	}
+
 	var allLogs []LogEntry
-	q := strings.ToLower(query)
 	for _, f := range logFiles {
 		if _, err := os.Stat(f); os.IsNotExist(err) {
 			continue
 		}
-		options := ReadLogsOptions{MaxResults: 5000, ChunkSize: 800, EnableEarlyTermination: true}
+		options := ReadLogsOptions{MaxResults: 0, ChunkSize: 800, EnableEarlyTermination: false}
 		logs, _, err := ReadAndFilterLogsWithOptions(f, func(e LogEntry) bool {
-			if strings.Contains(strings.ToLower(e.Message), q) || strings.Contains(strings.ToLower(e.Path), q) || strings.Contains(strings.ToLower(e.LogID), q) {
-				if level != "" && !strings.EqualFold(e.Level, level) {
-					return false
-				}
-				return true
+			if !matchSearchQuery(e, opts.Query, compiled) {
+				return false
 			}
-			return false
+			if opts.Level != "" && !strings.EqualFold(e.Level, opts.Level) {
+				return false
+			}
+			return entryInTimeRange(e, opts.StartTime, opts.EndTime)
 		}, options)
 		if err != nil {
 			continue
@@ -147,7 +199,8 @@ func SearchLogsWithConfig(cfg LoggerConfig, query, date, level string) ([]LogEnt
 	}
 
 	sort.Slice(allLogs, func(i, j int) bool { return allLogs[i].Timestamp > allLogs[j].Timestamp })
-	return allLogs, len(allLogs), nil
+	total := len(allLogs)
+	return applyPagination(allLogs, opts.Offset, opts.Limit), total, nil
 }
 
 // GetLogDirectory returns log dir path (env LOG_DIR or ./logs)
@@ -261,4 +314,70 @@ func extractDateFromLogFile(filePath string) string {
 		return m[1]
 	}
 	return ""
+}
+
+func matchSearchQuery(e LogEntry, query string, compiled *regexp.Regexp) bool {
+	if compiled != nil {
+		return compiled.MatchString(e.Message) || compiled.MatchString(e.Path) || compiled.MatchString(e.LogID)
+	}
+	if query == "" {
+		return true
+	}
+	q := strings.ToLower(query)
+	return strings.Contains(strings.ToLower(e.Message), q) ||
+		strings.Contains(strings.ToLower(e.Path), q) ||
+		strings.Contains(strings.ToLower(e.LogID), q)
+}
+
+func entryInTimeRange(e LogEntry, start, end time.Time) bool {
+	if start.IsZero() && end.IsZero() {
+		return true
+	}
+	ts, err := parseEntryTimestamp(e.Timestamp)
+	if err != nil {
+		return false
+	}
+	if !start.IsZero() && ts.Before(start) {
+		return false
+	}
+	if !end.IsZero() && ts.After(end) {
+		return false
+	}
+	return true
+}
+
+func parseEntryTimestamp(s string) (time.Time, error) {
+	if s == "" {
+		return time.Time{}, fmt.Errorf("empty timestamp")
+	}
+	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+		return t, nil
+	}
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, nil
+	}
+	if ms, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return time.UnixMilli(ms), nil
+	}
+	if t, err := time.Parse("2006-01-02 15:04:05", s); err == nil {
+		return t, nil
+	}
+	return time.Parse("2006-01-02", s)
+}
+
+func applyPagination(logs []LogEntry, offset, limit int) []LogEntry {
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= len(logs) {
+		if logs == nil {
+			return nil
+		}
+		return []LogEntry{}
+	}
+	logs = logs[offset:]
+	if limit > 0 && len(logs) > limit {
+		logs = logs[:limit]
+	}
+	return logs
 }

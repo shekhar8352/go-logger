@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,11 +11,16 @@ import (
 
 func writeTestLogLine(t *testing.T, dir, prefix, date, message, level string) string {
 	t.Helper()
+	return writeTestLogLineTS(t, dir, prefix, date, "2026-08-18T12:00:00Z", message, level)
+}
+
+func writeTestLogLineTS(t *testing.T, dir, prefix, date, timestamp, message, level string) string {
+	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 	path := datedLogFile(dir, prefix, date)
-	line := `{"timestamp":"2026-08-18T12:00:00Z","log_id":"test-id","level":"` + level + `","message":"` + message + `","file":"reader_test.go","line":1}`
+	line := `{"timestamp":"` + timestamp + `","log_id":"test-id","level":"` + level + `","message":"` + message + `","file":"reader_test.go","line":1}`
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		t.Fatalf("open log file: %v", err)
@@ -151,5 +157,140 @@ func TestGetAvailableLogFiles_WithCustomPrefix(t *testing.T) {
 	}
 	if len(appFiles) != 1 || filepath.Base(appFiles[0]) != "app-2026-08-18.log" {
 		t.Fatalf("expected only app-prefixed file, got %v", appFiles)
+	}
+}
+
+func TestSearchLogs_WithPagination_ReturnsCorrectSlice(t *testing.T) {
+	dir := t.TempDir()
+	date := "2026-08-18"
+	cfg := LoggerConfig{LogsDir: dir, FilePrefix: "app"}
+	for _, ts := range []string{
+		"2026-08-18T12:00:01Z",
+		"2026-08-18T12:00:02Z",
+		"2026-08-18T12:00:03Z",
+		"2026-08-18T12:00:04Z",
+		"2026-08-18T12:00:05Z",
+	} {
+		writeTestLogLineTS(t, dir, "app", date, ts, "page-item", LevelInfo)
+	}
+
+	logs, total, err := SearchLogsWithOptions(SearchOptions{
+		Config: cfg,
+		Query:  "page-item",
+		Date:   date,
+		Offset: 1,
+		Limit:  2,
+	})
+	if err != nil {
+		t.Fatalf("SearchLogsWithOptions: %v", err)
+	}
+	if total != 5 {
+		t.Fatalf("total = %d, want 5", total)
+	}
+	if len(logs) != 2 {
+		t.Fatalf("page len = %d, want 2", len(logs))
+	}
+	// Newest-first: 05, 04, 03, 02, 01 → offset 1 limit 2 is 04 then 03.
+	if logs[0].Timestamp != "2026-08-18T12:00:04Z" || logs[1].Timestamp != "2026-08-18T12:00:03Z" {
+		t.Fatalf("unexpected page: %+v", logs)
+	}
+}
+
+func TestReadLogs_WithTimeRange_Filters(t *testing.T) {
+	dir := t.TempDir()
+	date := "2026-08-18"
+	writeTestLogLineTS(t, dir, "app", date, "2026-08-18T10:00:00Z", "early", LevelInfo)
+	writeTestLogLineTS(t, dir, "app", date, "2026-08-18T12:00:00Z", "mid", LevelInfo)
+	writeTestLogLineTS(t, dir, "app", date, "2026-08-18T14:00:00Z", "late", LevelInfo)
+
+	start, _ := time.Parse(time.RFC3339, "2026-08-18T11:00:00Z")
+	end, _ := time.Parse(time.RFC3339, "2026-08-18T13:00:00Z")
+	logs, total, err := ReadLogsWithOptions(ReadOptions{
+		Config:    LoggerConfig{LogsDir: dir, FilePrefix: "app"},
+		Date:      date,
+		StartTime: start,
+		EndTime:   end,
+	})
+	if err != nil {
+		t.Fatalf("ReadLogsWithOptions: %v", err)
+	}
+	if total != 1 || len(logs) != 1 || logs[0].Message != "mid" {
+		t.Fatalf("expected only mid entry, total=%d logs=%+v", total, logs)
+	}
+}
+
+func TestTail_ReturnsNewLines(t *testing.T) {
+	dir := t.TempDir()
+	cfg := LoggerConfig{
+		LogsDir:        dir,
+		FilePrefix:     "app",
+		IncludeConsole: false,
+		MinLevel:       LevelInfo,
+	}
+	lg := NewLogger(cfg)
+	defer lg.Close()
+	lg.Info(context.Background(), "already-there")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch, err := TailLogs(ctx, TailOptions{Config: cfg, PollEvery: 10 * time.Millisecond})
+	if err != nil {
+		t.Fatalf("TailLogs: %v", err)
+	}
+
+	time.Sleep(40 * time.Millisecond)
+	lg.Info(context.Background(), "brand-new-line")
+
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case e, ok := <-ch:
+			if !ok {
+				t.Fatal("tail channel closed before new line")
+			}
+			if strings.Contains(e.Message, "already-there") {
+				t.Fatal("tail should start at EOF, not replay existing lines")
+			}
+			if strings.Contains(e.Message, "brand-new-line") {
+				return
+			}
+		case <-deadline:
+			t.Fatal("did not receive tailed line")
+		}
+	}
+}
+
+func TestSearchLogs_WithRegex_Matches(t *testing.T) {
+	dir := t.TempDir()
+	date := time.Now().Format("2006-01-02")
+	writeTestLogLine(t, dir, "app", date, "user-42 logged in", LevelInfo)
+	writeTestLogLine(t, dir, "app", date, "user-abc logged in", LevelInfo)
+	writeTestLogLine(t, dir, "app", date, "unrelated", LevelInfo)
+
+	cfg := LoggerConfig{LogsDir: dir, FilePrefix: "app"}
+	logs, total, err := SearchLogsWithOptions(SearchOptions{
+		Config:   cfg,
+		Query:    `user-\d+`,
+		Date:     date,
+		UseRegex: true,
+	})
+	if err != nil {
+		t.Fatalf("regex search: %v", err)
+	}
+	if total != 1 || len(logs) != 1 || logs[0].Message != "user-42 logged in" {
+		t.Fatalf("expected only user-42, total=%d logs=%+v", total, logs)
+	}
+
+	plain, plainTotal, err := SearchLogsWithOptions(SearchOptions{
+		Config:   cfg,
+		Query:    `user-\d+`,
+		Date:     date,
+		UseRegex: false,
+	})
+	if err != nil {
+		t.Fatalf("substring search: %v", err)
+	}
+	if plainTotal != 0 || len(plain) != 0 {
+		t.Fatalf("substring search should not treat query as regex, got %+v", plain)
 	}
 }

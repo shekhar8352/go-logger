@@ -154,6 +154,17 @@ func main() {
 	for _, l := range logs {
 		fmt.Printf("[%s] %s\n", l.Timestamp, l.Message)
 	}
+
+	page, total, err := logging.SearchLogsWithOptions(logging.SearchOptions{
+		Query:  "error",
+		Offset: 0,
+		Limit:  20,
+	})
+	if err != nil {
+		fmt.Printf("Error searching logs: %v\n", err)
+		return
+	}
+	fmt.Printf("Page has %d of %d matches\n", len(page), total)
 }
 ```
 
