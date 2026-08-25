@@ -129,7 +129,20 @@ lg := logging.NewLogger(cfg)
 _ = lg.Metrics()
 ```
 
-### 7. Search & Read Logs
+### 7. Sampling and graceful degradation
+
+Sampling is off unless `SampleEveryN > 1`. Then 1 in N entries is kept for `SampleLevels` (the 1st, N+1st, …). If `SampleLevels` is empty, only **DEBUG** is sampled so INFO/WARN/ERROR stay complete. Dropped lines do not run hooks or increment metrics.
+
+```go
+cfg := logging.DefaultConfig()
+cfg.MinLevel = logging.LevelDebug
+cfg.SampleEveryN = 10
+cfg.SampleLevels = []string{logging.LevelDebug}
+```
+
+If the log directory cannot be created or the log file cannot be opened, the logger does not panic: it keeps accepting writes and falls back to **stderr**. `RotationError()` reports the last failure, and later writes retry rotation. A custom `Writer` (for example `BufferSink`) skips file rotation entirely.
+
+### 8. Search & Read Logs
 
 You can programmatically search through generated logs.
 

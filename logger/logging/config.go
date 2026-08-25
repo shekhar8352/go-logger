@@ -71,6 +71,12 @@ type LoggerConfig struct {
 	// OnError is an optional hook invoked only for ERROR entries, with the
 	// same async/non-blocking contract as Hooks.
 	OnError Hook
+	// SampleEveryN, when greater than 1, keeps 1 in N entries for the levels
+	// in SampleLevels (deterministic: the 1st, N+1st, …). Zero or 1 disables
+	// sampling so every entry that passes MinLevel is logged.
+	SampleEveryN int
+	// SampleLevels are the levels sampling applies to. Empty means DEBUG only.
+	SampleLevels []string
 }
 
 // Hook is called with a log entry after MinLevel filtering.

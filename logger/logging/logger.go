@@ -34,6 +34,11 @@ type StructuredLogger struct {
 	infoCount  atomic.Uint64
 	warnCount  atomic.Uint64
 	errorCount atomic.Uint64
+
+	sampleDebug atomic.Uint64
+	sampleInfo  atomic.Uint64
+	sampleWarn  atomic.Uint64
+	sampleError atomic.Uint64
 }
 
 type logJob struct {
@@ -189,6 +194,9 @@ func (l *StructuredLogger) writeLog(entry LogEntry) {
 	}
 
 	w := l.rootOrSelf()
+	if w.dropBySampling(entry.Level) {
+		return
+	}
 	w.recordMetrics(entry.Level)
 	w.invokeHooks(entry)
 
