@@ -142,7 +142,16 @@ cfg.SampleLevels = []string{logging.LevelDebug}
 
 If the log directory cannot be created or the log file cannot be opened, the logger does not panic: it keeps accepting writes and falls back to **stderr**. `RotationError()` reports the last failure, and later writes retry rotation. A custom `Writer` (for example `BufferSink`) skips file rotation entirely.
 
-### 8. Search & Read Logs
+### 8. Stack traces on error
+
+When `IncludeStackTraceOnError` is true, ERROR and WARN entries include a `stack_trace` field (from `runtime/debug.Stack()`). It is omitted when the flag is false.
+
+```go
+cfg := logging.DefaultConfig()
+cfg.IncludeStackTraceOnError = true
+```
+
+### 9. Search & Read Logs
 
 You can programmatically search through generated logs.
 
