@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -291,17 +292,30 @@ func (l *StructuredLogger) createLogEntry(ctx context.Context, level string, msg
 	}
 	file, line, function := getCallerInfo(3)
 	return LogEntry{
-		Timestamp: formatTimestamp(time.Now(), l.rootOrSelf().config.TimestampFormat),
-		LogID:     GetLogID(ctx),
-		RequestID: GetRequestID(ctx),
-		TraceID:   GetTraceID(ctx),
-		UserID:    GetUserID(ctx),
-		Level:     level,
-		Message:   msg,
-		File:      file,
-		Line:      line,
-		Function:  function,
-		Fields:    mergeFields(copyFields(l.fields), GetContextFields(ctx)),
+		Timestamp:  formatTimestamp(time.Now(), l.rootOrSelf().config.TimestampFormat),
+		LogID:      GetLogID(ctx),
+		RequestID:  GetRequestID(ctx),
+		TraceID:    GetTraceID(ctx),
+		UserID:     GetUserID(ctx),
+		Level:      level,
+		Message:    msg,
+		File:       file,
+		Line:       line,
+		Function:   function,
+		Fields:     mergeFields(copyFields(l.fields), GetContextFields(ctx)),
+		StackTrace: l.stackTraceFor(level),
+	}
+}
+
+func (l *StructuredLogger) stackTraceFor(level string) string {
+	if !l.rootOrSelf().config.IncludeStackTraceOnError {
+		return ""
+	}
+	switch strings.ToUpper(level) {
+	case LevelError, LevelWarn:
+		return strings.TrimRight(string(debug.Stack()), "\n")
+	default:
+		return ""
 	}
 }
 

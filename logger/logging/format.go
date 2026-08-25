@@ -69,6 +69,9 @@ func encodeLogfmt(entry LogEntry) []byte {
 	if entry.Function != "" {
 		appendKV("function", entry.Function)
 	}
+	if entry.StackTrace != "" {
+		appendKV("stack_trace", entry.StackTrace)
+	}
 	for k, v := range entry.Fields {
 		appendKV(k, fmt.Sprint(v))
 	}

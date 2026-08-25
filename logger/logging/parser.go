@@ -48,6 +48,9 @@ func ParseLogLine(line string) (LogEntry, error) {
 	if id, ok := raw["user_id"].(string); ok {
 		entry.UserID = id
 	}
+	if st, ok := raw["stack_trace"].(string); ok {
+		entry.StackTrace = st
+	}
 	if f, ok := raw["fields"].(map[string]interface{}); ok && len(f) > 0 {
 		entry.Fields = copyFields(f)
 	}
@@ -56,7 +59,7 @@ func ParseLogLine(line string) (LogEntry, error) {
 	for k, v := range raw {
 		switch k {
 		case "timestamp", "log_id", "level", "message", "file", "line", "function",
-			"request_id", "trace_id", "user_id", "fields":
+			"request_id", "trace_id", "user_id", "fields", "stack_trace":
 		// already handled
 		default:
 			if s, ok := v.(string); ok {

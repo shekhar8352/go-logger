@@ -20,6 +20,9 @@ type LogEntry struct {
 	// It is omitted from JSON when empty so existing log shape is unchanged.
 	Fields map[string]interface{} `json:"fields,omitempty"`
 
+	// StackTrace is set on ERROR/WARN when IncludeStackTraceOnError is true.
+	StackTrace string `json:"stack_trace,omitempty"`
+
 	// Parsed fields (optional)
 	Method    string            `json:"method,omitempty"`
 	Path      string            `json:"path,omitempty"`

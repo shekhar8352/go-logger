@@ -77,6 +77,10 @@ type LoggerConfig struct {
 	SampleEveryN int
 	// SampleLevels are the levels sampling applies to. Empty means DEBUG only.
 	SampleLevels []string
+	// IncludeStackTraceOnError attaches a stack trace to ERROR and WARN
+	// entries when true. Other levels are unchanged. False (the default)
+	// omits the stack_trace field from output.
+	IncludeStackTraceOnError bool
 }
 
 // Hook is called with a log entry after MinLevel filtering.
